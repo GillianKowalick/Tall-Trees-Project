@@ -1,0 +1,735 @@
+---
+title: "BEES3041 Canopy Height"
+author: "Gillian"
+date: "03/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# __Study Aim:__ 
+To investigate the bimodality in canopy height distribution in the intermediate rainfall zone (1500-2000mm).  
+
+## __Examine the role of:__
+* Human disturbance
+* Biome classification 
+* Fire size
+
+
+## __Data Processing__  
+
+
+__Load libraries__
+```{r}
+library(tidyverse)
+library(png)
+library(raster)
+library(rgdal)
+library(ncdf4)
+library(sf)
+library(sp)
+library(readxl)
+```
+
+
+*Source data proccessing file with precreated functions to load the datasets*
+```{r}
+source("R/data_processing.R")
+```
+
+
+__Loading data and creating a combined dataframe:__
+```{r, eval=FALSE}
+data_height <- get_height_df()
+
+data_precip <- get_precip_df()
+
+data_treecover <- get_tree_cover_df()
+
+data_globcover <- get_area_type_df()
+
+data_intactforest <- get_intactforest_df()
+
+data_all <-
+  init_globe_df() %>%
+  left_join(by = c("x", "y"), data_height) %>%
+  left_join(by = c("x", "y"), data_precip) %>%
+  left_join(by = c("x", "y"), data_treecover) %>%
+  left_join(by = c("x", "y"), data_globcover) %>%
+  left_join(by = c("x", "y"), data_intactforest) %>%
+  mutate(forest_zone = percentage_tree_cover >= 20)
+
+saveRDS(data_all, "data/data_all.rds")
+```
+
+
+```{r}
+data_all <- readRDS("data/data_all.rds")
+```
+
+
+__Subsetting Data to only include only areas with >20% vegetation cover and with a 'forest' biome classification and in rainfall zone 1500-2000mm.__
+```{r}
+data_all_graphing <-
+  subset(data_all,
+         canopy_height > 1 &
+           percentage_tree_cover > 0.001 & forest_zone == "TRUE")
+
+data_subset_graphing <-
+  subset(
+    data_all_graphing,
+    forest_zone == "TRUE" &
+      globcover_numeric != "11" &
+      globcover_numeric != "14" &
+      globcover_numeric != "20" &
+      globcover_numeric != "30" &
+      globcover_numeric != "190" &
+      globcover_numeric != "200" &
+      globcover_numeric != "210" &
+      globcover_numeric != "220" &
+      globcover_numeric != "230" &
+      globcover_numeric != "150" &
+      !is.na(data_all_graphing$globcover_numeric)
+  )
+
+rain_gap <-
+  data_subset_graphing %>% filter(mean_annual_precipitation < 2000) %>%
+  filter(mean_annual_precipitation > 1500)
+
+```
+
+
+## __Visualising Data__  
+
+
+__Precipitation count graphs for all data and subset data:__
+```{r}
+# Count for all data
+ggplot(data_all, aes(mean_annual_precipitation)) +
+  geom_freqpoly(stat = "bin") +
+  scale_x_continuous(limits = c(0, 4000))
+
+# Count for forest subsetted data
+ggplot(data_subset_graphing, aes(mean_annual_precipitation)) +
+  geom_freqpoly(stat = "bin") +
+  scale_x_continuous(limits = c(0, 4000))
+```
+
+
+__Visualizing intactness and canopy height Data through recreating Scheffer et al (2018) and Falster et al (unpublished)'s graphs.__
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(viridis)
+
+#Recreating Scheffer et al (2018) density plot
+
+ggplot(data_subset_graphing,
+       aes(mean_annual_precipitation, canopy_height)) +
+  geom_bin2d() +
+  scale_fill_viridis(option = "turbo") +
+  scale_x_continuous(expand = c(0, 0), limit = c(0, 3500)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + ggtitle(expression(
+    underline("Precipitation and Global Canopy Height Distribution")
+  )) + labs(y = "Canopy Height (m)", x = "Mean Annual Precipitation (mm)", caption = "Figure 1: Reconstruction of the Scheffer et al. (2018) density plot showing the \ndistinct jump in canopy height at 1500mm precipitation.") + labs(fill = "Density Count") + theme(
+    plot.title = element_text(hjust = 0.5, size = 15, face = "bold"),
+    plot.caption = element_text(hjust = 0, size = 10),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10)
+  )
+ggsave("recreation_scheffer.png",
+       width = 10,
+       height = 6,
+)
+
+#Recreating Falster et al (unpublished) density plot separating intact vs non intact
+
+ggplot(data_subset_graphing,
+       aes(mean_annual_precipitation, canopy_height)) +
+  geom_bin2d() + scale_fill_viridis(option = "turbo") + facet_wrap( ~ intact_forest) + scale_x_continuous(expand = c(0, 0), limits = c(0, 3500)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() +
+  theme_classic() + ggtitle(expression(underline(
+    "Canopy Height, Precipitaton and Intactness"
+  ))) + labs(y = "Canopy Height (m)", x = "Mean Annual Precipitation (mm)", caption = "Figure 2: Density plots showing the relationship between precipitation and canopy height for intact and\n non-intact forests.The graphs show a significant difference in canopy height distribution between intact\n and non-intact forests.") + labs(fill = "Density Count") + theme(
+    plot.title = element_text(hjust = 0.5, size = 15, face = "bold"),
+    plot.caption = element_text(hjust = 0, size = 10),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    strip.text = element_text(size = 10)
+  )
+ggsave("recreation_falsterintactnon.png",
+       width = 10,
+       height = 6,
+)
+```
+
+
+__Investigating If Land Cover Classification Could Have A Relationship with Canopy Height.__ *Decided not to further investigate*
+```{r}
+ggplot(data_all_graphing,
+       aes(mean_annual_precipitation, canopy_height)) +
+  geom_point(size = 0.05,
+             alpha = 0.3,
+             aes(colour = globcover_label)) +
+  scale_x_continuous(limits = c(0, 4000)) + theme(legend.position = "none")
+
+
+## removing pesky "NA" values
+is.na_remove <- subset(data_subset_graphing,!is.na(data_subset_graphing$globcover_label))
+
+ggplot(is.na_remove, aes(mean_annual_precipitation, canopy_height)) +
+  scale_x_continuous(limits = c(0, 4000)) +
+  geom_density_2d_filled() +
+  facet_wrap(vars(globcover_label))
+
+
+#graphing biomes
+ggplot(is.na_remove, aes(mean_annual_precipitation, canopy_height)) +
+  geom_density_2d(aes(colour = globcover_label)) + theme(legend.position = "none")
+
+
+# Map to show distribution of biomes
+world <- map_data("world")
+
+ggplot() +
+  geom_map(
+    data = world,
+    map = world,
+    aes(long, lat, map_id = region),
+    color = "white",
+    fill = "lightgray",
+    size = 0.1
+  ) +
+  geom_point(
+    data = rain_gap,
+    aes(x, y, colour = globcover_label),
+    alpha = 0.4,
+    size = 0.1
+  ) + theme(legend.position = "none") #remove legend expression to see legend
+
+#Frequency Distribution of biomes in 1500-2000mm rainfall zone
+ggplot(rain_gap, aes(globcover_numeric)) +
+  geom_histogram(stat = "count")
+
+
+#Frequency Distribution of biomes for all rainfall zones
+ggplot(data_subset_graphing, aes(globcover_numeric)) +
+  geom_histogram(stat = "count")
+
+```
+
+
+__Mapping canopy height and intactness to visualise global patterns in distribution:__
+```{r}
+## turning height into a categorical variable (0-25=small 25-30=medium 30-> tall)
+height_cat <-
+  cut (
+    rain_gap$canopy_height,
+    breaks = c(0, 25, 30, 60),
+    labels = c("small", "medium", "tall")
+  )
+rain_gap$height_cat <- height_cat
+
+
+##Mapping the global distribution of canopy height categories
+world <- map_data("world")
+
+ggplot() +
+  geom_map(
+    data = world,
+    map = world,
+    aes(long, lat, map_id = region),
+    color = "white",
+    fill = "lightgray",
+    size = 0.1
+  ) +
+  geom_point(
+    data = rain_gap,
+    aes(x, y, colour = height_cat),
+    alpha = 0.4,
+    size = 0.1
+  )
+
+
+## Mapping the distribution of intact and non-intact forests
+ggplot() +
+  geom_map(
+    data = world,
+    map = world,
+    aes(long, lat, map_id = region),
+    color = "white",
+    fill = "lightgray",
+    size = 0.1
+  ) +
+  geom_point(
+    data = rain_gap,
+    aes(x, y, colour = intact_forest),
+    alpha = 0.4,
+    size = 0.1
+  ) 
+```
+
+
+## __Data Processing__
+
+
+__Loading Fire Data to Help Explain Canopy Bimodality__ 
+```{r}
+load_fire <- function(year) {
+  path <- paste0("data/firedata/", year, "firesize.tif")
+  
+  e <- set_extent()
+  
+  raster::stack(path) %>%
+    sum() %>%
+    crop(e) %>%
+    raster::as.data.frame(xy = TRUE) %>%
+    as_tibble() %>%
+    mutate(year = year)
+}
+
+## (run in analysis for file location)
+
+fire_2003 <- load_fire(2003)
+fire_2004 <- load_fire(2004)
+fire_2005 <- load_fire(2005)
+fire_2006 <- load_fire(2006)
+fire_2007 <- load_fire(2007)
+fire_2008 <- load_fire(2008)
+fire_2009 <- load_fire(2009)
+fire_2010 <- load_fire(2010)
+fire_2011 <- load_fire(2011)
+fire_2012 <- load_fire(2012)
+fire_2013 <- load_fire(2013)
+fire_2014 <- load_fire(2014)
+fire_2015 <- load_fire(2015)
+fire_2016 <- load_fire(2016)
+
+#Joining yearly fire Data into a single dataframe
+
+all_fire <-
+  rbind(
+    fire_2003,
+    fire_2004,
+    fire_2005,
+    fire_2006,
+    fire_2007,
+    fire_2008,
+    fire_2009,
+    fire_2010,
+    fire_2011,
+    fire_2012,
+    fire_2013,
+    fire_2014,
+    fire_2015,
+    fire_2016
+  )
+
+#Calculating total burnt area and mean burnt area
+
+fire_sum <-
+  all_fire %>% group_by(x, y) %>% summarise(total_burnt_area = sum(layer))
+
+fire_average <-
+  all_fire %>% group_by(x, y) %>% summarise(mean_burnt_area = mean(layer))
+```
+
+
+Changing the downscale function:
+```{r}
+downscale_spatial_data_.5 <- function(rl, func = "mean") {
+  cells.per.degree <- rl@ncols / (xmax(extent(rl) - 1) - xmin(extent(rl) -
+                                                                1))
+  factor <- cells.per.degree / 2
+  
+  # perform downscale and return resultant RasterLayer
+  if (factor > 1)
+    rl <- aggregate(rl,
+                    fact = factor,
+                    fun = func)
+  rl
+}
+```
+
+
+Rescaling the sum and average columns:
+```{r}
+#fire sum rescale
+coordinates(fire_sum) <- ~ x + y
+gridded(fire_sum) <- TRUE
+raster_sum_fire <- raster(fire_sum)
+
+rescale_sum_fire <- downscale_spatial_data_.5(raster_sum_fire)
+
+e <- set_extent()
+
+rescale_sum_fire <- raster::stack(rescale_sum_fire) %>%
+  sum() %>%
+  crop(e) %>%
+  raster::as.data.frame(xy = TRUE) %>%
+  as_tibble()
+
+
+#fire average rescale
+coordinates(fire_average) <- ~ x + y
+gridded(fire_average) <- TRUE
+raster_average_fire <- raster(fire_average)
+
+rescale_average_fire <-
+  downscale_spatial_data_.5(raster_average_fire)
+
+e <- set_extent()
+
+rescale_average_fire <- raster::stack(rescale_average_fire) %>%
+  sum() %>%
+  crop(e) %>%
+  raster::as.data.frame(xy = TRUE) %>%
+  as_tibble()
+
+```
+
+__Joining the fire data with the rest of the data:__
+```{r}
+data_all_withfire <-
+  data_all %>%
+  left_join(by = c("x", "y"), rescale_sum_fire)
+
+data_all_withfire <-
+  data_all_withfire %>%
+  left_join(by = c("x", "y"), rescale_average_fire)
+
+data_all_withfire_graphing <-
+  subset(
+    data_all_withfire,
+    canopy_height > 1 &
+      percentage_tree_cover > 0.001 & forest_zone == "TRUE"
+  )
+
+data_subset_withfire_graphing <-
+  subset(
+    data_all_withfire_graphing,
+    forest_zone == "TRUE" &
+      globcover_numeric != "11" &
+      globcover_numeric != "14" &
+      globcover_numeric != "20" &
+      globcover_numeric != "30" &
+      globcover_numeric != "190" &
+      globcover_numeric != "200" &
+      globcover_numeric != "210" &
+      globcover_numeric != "220" &
+      globcover_numeric != "230" &
+      globcover_numeric != "150" &
+      !is.na(data_all_withfire_graphing$globcover_numeric)
+  )
+
+#Creating dataframe that includes fire just for the Intermediate Rainfall Zone
+
+rain_gap_fire <-
+  data_subset_withfire_graphing %>% filter(mean_annual_precipitation < 2000) %>%
+  filter(mean_annual_precipitation > 1500)
+
+```
+
+
+## __Visualising Data__
+
+
+__Graphing the raw fire data to understand its distribution.__
+```{r}
+#Visualising the mean annual fire size and total fire size in relation to canopy height and precipitation
+
+ggplot(data_subset_withfire_graphing, aes(canopy_height, mean_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 60))
+
+ggplot(data_subset_withfire_graphing, aes(canopy_height, mean_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 60)) + scale_y_log10()
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, mean_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 4000))
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, mean_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 4000)) + scale_y_log10()
+
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, total_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 4000))
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, total_burnt_area)) + 
+  geom_point(size=0.05) + 
+  scale_x_continuous(limits = c(0, 4000)) + scale_y_log10()
+```
+
+__Visualising the interaction between variables.__
+```{r}
+#Creating a burnt column for fire data to record areas a fire has passed through 
+data_subset_withfire_graphing$burnt <- if_else(data_subset_withfire_graphing$mean_burnt_area > 0, "burnt", "unburnt")
+
+
+#graphing the relationship between canopy height and preciptiation and colouring by burnt or unburnt
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height )) +
+  geom_point(size=0.05, alpha=0.3, aes(colour=burnt)) + 
+  scale_x_continuous(limits = c(0, 4000))
+
+#graph showing burnt area and canopy height relationship
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height )) +
+   geom_density_2d(aes(colour = burnt))
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~burnt)+ scale_y_continuous(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), limit = c(0, 2500)) +
+  theme_classic()
+
+
+#burnt vs unburnt for canopy height/cover
+ggplot(data_subset_withfire_graphing, aes(percentage_tree_cover, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~burnt)+ scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic()
+
+
+#Density plot burnt area and canopy height
+ggplot(data_subset_withfire_graphing, aes(mean_burnt_area, canopy_height)) + 
+  geom_bin2d()+
+  scale_fill_viridis(option = "turbo")+
+  scale_x_continuous(expand = c(0, 0), limit = c(0, 1000)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + scale_x_log10()
+
+#Mapping burnt and unburnt areas in rainfall zone 1500-200mm, showing most areas have been burnt
+fire_distribution_rainfallzone <- data_subset_withfire_graphing %>% filter(mean_annual_precipitation < 2000, mean_annual_precipitation > 1500)
+
+ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white", fill = "lightgray", size = 0.1
+    ) +
+  geom_point(
+    data = fire_distribution_rainfallzone,
+    aes(x, y, colour=burnt),
+    alpha = 0.4, size = 0.1
+  )
+```
+
+__Graphing the effect of fire and intactness on canopy height:__
+```{r}
+#mean burnt area and canopy height by intact vs non intact
+ggplot(data_subset_withfire_graphing, aes(mean_burnt_area, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~intact_forest)+ scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + scale_x_continuous(expand = c(0, 0), limit= c(0, 1000)) +
+  scale_y_continuous(expand = c(0, 0), limit = c(0, 40)) +
+  theme_classic()
+
+ggplot(data_subset_withfire_graphing, aes(mean_burnt_area, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~intact_forest)+ scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + scale_x_continuous(expand = c(0, 0), limit= c(0, 1000)) +
+  scale_y_continuous(expand = c(0, 0), limit = c(0, 40)) +
+  theme_classic() + scale_x_log10()
+
+ggplot(data_subset_withfire_graphing, aes(mean_burnt_area, mean_annual_precipitation)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~intact_forest)+ scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + scale_x_continuous(expand = c(0, 0), limit= c(0, 1000)) +
+  scale_y_continuous(expand = c(0, 0), limit = c(0, 2500)) +
+  theme_classic()
+```
+
+
+__Creating a new variable of big fire or little/no fire because most cells had some level of burnt.__
+```{r}
+#Dividing fire data into big and small/no fire categories
+
+data_subset_withfire_graphing$firesize <- if_else(data_subset_withfire_graphing$mean_burnt_area > 1.25, "big_fire", "small_no_fire")
+
+rain_gap_fire$firesize <- if_else(rain_gap_fire$mean_burnt_area > 1.25, "big_fire", "small_no_fire")
+
+
+#Comparing use of burnt and unburnt values with new values that divide by big and small fire
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~firesize)+ scale_y_continuous(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), limit = c(0, 2500)) +
+  theme_classic()
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height)) +
+  geom_bin2d()+ scale_fill_viridis(option = "turbo") + facet_wrap(~burnt)+ scale_y_continuous(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), limit = c(0, 2500)) +
+  theme_classic()
+
+ggplot(rain_gap_fire, aes(mean_annual_precipitation, canopy_height )) +
+	   geom_density_2d(aes(colour = firesize))
+
+```
+
+__Looking at interaction between precipitation, fire, intactness and canopy height__
+```{r}
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height)) + 
+  geom_point(size=0.05, aes(colour=intact_forest)) +  scale_x_continuous(limit = c(0, 2500)) + facet_wrap(~firesize)
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height)) + 
+  geom_point(size=0.05, aes(colour=intact_forest)) +  scale_x_continuous(limit = c(0, 2500)) + facet_wrap(~burnt)
+
+
+ggplot(rain_gap_fire, aes(mean_annual_precipitation, canopy_height)) + 
+  geom_point(size=0.05, aes(colour=intact_forest)) +  scale_x_continuous(limit = c(1500, 2000)) + facet_wrap(~firesize)
+
+	
+	ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height )) +
+   geom_density_2d(aes(colour = intact_forest)) +  
+   scale_x_continuous(limits = c(1500, 2000)) +
+   facet_wrap(~firesize)
+
+
+ggplot(data_subset_withfire_graphing, aes(mean_annual_precipitation, canopy_height )) +
+   geom_density_2d(aes(colour = firesize)) +  
+   scale_x_continuous(limits = c(1500, 2000)) +
+   facet_wrap(~intact_forest)
+```
+
+
+## __FINDINGS__
+
+
+__Mapping the distribution of variables to compare patterns:__
+```{r}
+rain_gap_fire$firesize <- if_else(rain_gap_fire$mean_burnt_area > 1.25, "big_fire", "small_no_fire")
+
+world <- map_data("world")
+
+#Mapping the distribution of fires 
+
+ggplot() +
+  geom_map(
+    data = world,
+    map = world,
+    aes(long, lat, map_id = region),
+    color = "white",
+    fill = "lightgray",
+    size = 0.1
+  ) +
+  geom_point(
+    data = rain_gap_fire,
+    aes(x, y, colour = firesize),
+    alpha = 0.4,
+    size = 0.1
+  ) + ggtitle("Global Distribution Fire Regimes Across Forests in Intermediate Rainfall Zone")+ labs(colour = "Fire Size") + theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("firemap.jpg", width = 15,
+  height = 7,)
+
+
+#Mapping forest intactness
+
+ggplot() +
+  geom_map(
+    data = world,
+    map = world,
+    aes(long, lat, map_id = region),
+    color = "white",
+    fill = "lightgray",
+    size = 0.1
+  ) +
+  geom_point(
+    data = rain_gap_fire,
+    aes(x, y, colour = intact_forest),
+    alpha = 0.4,
+    size = 0.1
+  ) + ggtitle("Global Distribution of Intact and Non Intact Forests")+ labs(colour = "Forest Intactness") + theme(plot.title = element_text(hjust = 0.5))
+ggsave("intactmap.jpg", width = 15, height = 7)
+
+
+#Mapping the distribution of canopy heights
+
+ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white", fill = "lightgray", size = 0.1
+    ) +
+  geom_point(
+    data = rain_gap,
+    aes(x, y, colour=height_cat),
+    alpha = 0.4, size = 0.1
+  ) + ggtitle("Global Distribution of Canopy Height")+ labs(colour = "Forest Height") + theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("small_medium_tall.jpg", width = 15,
+  height = 7,)
+```
+
+
+
+__Density graphs that best display findings and support hypotheses:__
+```{r}
+#Renaming the big and small fire variables as the new burnt and unburnt values for the subsetted all data.
+
+data_subset_withfire_graphing$firesize <-
+  if_else(data_subset_withfire_graphing$mean_burnt_area > 1.25,
+          "Burnt",
+          "Unburnt")
+
+#Contour density graph showing the effect of precipitation, fire and intactness on canopy height
+
+ggplot(data_subset_withfire_graphing,
+       aes(mean_annual_precipitation, canopy_height)) +
+  geom_density_2d(aes(colour = intact_forest)) +
+  scale_x_continuous(limits = c(1500, 2000)) +
+  facet_wrap(~ firesize) + ggtitle("Canopy Height, Precipitaiton, Fire Size and Forest Intactness") + labs(
+    y = "Canopy Height (m)",
+    x = "Mean Annual Precipitation (mm)",
+    caption = "add caption!",
+    colour = "Forest Intactness"
+  ) + theme(
+    plot.title = element_text(hjust = 0.5, size = 50, face = "bold"),
+    plot.caption = element_text(hjust = 0, size = 35),
+    axis.text = element_text(size = 40),
+    axis.title = element_text(size = 40),
+    legend.text = element_text(size = 35),
+    legend.title = element_text(size = 35),
+    strip.text = element_text(size = 40),
+    strip.background = element_rect(
+      fill = "white",
+      colour = "white",
+      size = 1
+    )
+  ) + theme_classic()
+ggsave("main_graph.png", width = 7,
+       height = 4)
+
+
+#The relationship between mean burnt area and mean annual precipitation in the intermediate rainfall zone
+
+ggplot(rain_gap_fire, aes(mean_annual_precipitation, mean_burnt_area))  +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_viridis(option="H") + scale_y_log10()+ ggtitle("                   Fire Size and Precipitation") + labs(y = "Mean Burnt Area (km²)", x = "Mean Annual Precipitation (mm)", caption = "__") + theme(legend.position='none', plot.title = element_text(hjust = 0.5), plot.caption = element_text(hjust = 0)) + theme_classic() 
+ggsave("fire_and_rain.png", width = 6,
+  height = 4,)
+
+
+#The relationship between mean burnt area and canopy height
+
+ggplot(rain_gap_fire, aes(mean_burnt_area, canopy_height)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE ) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_viridis(option="H") + theme(legend.position='none') +scale_x_log10()+ggtitle("            Mean Burnt Area and Canopy Height") + labs(y = "Canopy Height (m)", x = "Mean Burnt Area", caption = "Density plot showing the relationship between canopy height (m) and mean burnt area") + theme(plot.title = element_text(hjust = 10), plot.caption = element_text(hjust = 0)) + theme_classic() 
+ggsave("fire_and_height.png", width = 6,
+       height = 4)
+
+```
